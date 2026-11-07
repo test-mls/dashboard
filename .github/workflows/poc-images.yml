@@ -1,0 +1,121 @@
+name: PoC images
+
+# Builds the dashboard image from work branches of a fork and pushes it to the
+# fork's GitHub Container Registry, so a branch can be tried on a real server
+# next to the matching netbird-server and reverse-proxy PoC images.
+
+on:
+  push:
+    branches:
+      - "work/**"
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Target platforms, comma-separated"
+        required: false
+        default: "linux/amd64"
+
+concurrency:
+  group: poc-images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    # Never publish from the upstream repository; its images come from build_and_push.yml.
+    if: github.repository != 'netbirdio/dashboard'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: setup-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - run: echo '{}' > .local-config.json
+
+      - name: Download IronRDP release TS files
+        uses: robinraju/release-downloader@v1.13
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: netbirdio/IronRDP
+          tag: v0.0.2
+          fileName: "*.ts"
+          out-file-path: 'public/ironrdp-pkg'
+
+      - name: Download IronRDP release JS files
+        uses: robinraju/release-downloader@v1.13
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: netbirdio/IronRDP
+          tag: v0.0.2
+          fileName: "*.js"
+          out-file-path: 'public/ironrdp-pkg'
+
+      - name: Download IronRDP release WASM file
+        uses: robinraju/release-downloader@v1.13
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: netbirdio/IronRDP
+          tag: v0.0.2
+          fileName: "ironrdp_web_bg.wasm"
+          out-file-path: 'public/ironrdp-pkg'
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_DASHBOARD_VERSION: poc-${{ github.sha }}
+
+      - name: Set up QEMU
+        if: ${{ inputs.platforms != '' && inputs.platforms != 'linux/amd64' }}
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Image name
+        id: name
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/dashboard" >> "$GITHUB_OUTPUT"
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.name.outputs.ref }}
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+            type=raw,value=poc
+
+      - name: Log in to the GitHub Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          platforms: ${{ inputs.platforms || 'linux/amd64' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - run: |
+          echo '### Pushed tags' >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta.outputs.tags }}' >> "$GITHUB_STEP_SUMMARY"
