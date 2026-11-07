@@ -358,6 +358,52 @@ const services = [
     },
     meta: certified,
   },
+  {
+    // An MCP server with roles, MCP tool enforcement and a signed JWT.
+    id: "svc-tickets",
+    name: `tickets-mcp.${EU}`,
+    domain: `tickets-mcp.${EU}`,
+    mode: "http",
+    proxy_cluster: EU,
+    enabled: true,
+    targets: [
+      {
+        target_id: PEER.k8sNode,
+        target_type: "peer",
+        protocol: "http",
+        host: "100.92.12.5",
+        port: 8000,
+        enabled: true,
+        path: "/",
+      },
+    ],
+    auth: {
+      bearer_auth: {
+        enabled: true,
+        distribution_groups: [GROUP.developers, GROUP.devops],
+      },
+      header_auths: [{ enabled: true, header: "X-Api-Key", value: "" }],
+      authorization: {
+        roles: [
+          { name: "admin", groups: [GROUP.devops], mcp_tools: ["*"] },
+          {
+            name: "viewer",
+            groups: [GROUP.developers],
+            mcp_tools: ["list_*", "get_ticket"],
+          },
+          { name: "agent", groups: [], mcp_tools: ["list_*"] },
+        ],
+        api_key_roles: ["agent"],
+        enforce_mcp: true,
+        forwarding: "jwt",
+        jwt_header: "Authorization",
+        key_id: "3f9a1c2b7d4e8f60",
+        public_key_pem:
+          "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAnX4QzT2l0rOq5Yp7m3Jb2cV8kWfH1sLdE6uA9gRtYvI=\n-----END PUBLIC KEY-----\n",
+      },
+    },
+    meta: certified,
+  },
 ];
 
 const eventTemplates = [

@@ -245,6 +245,7 @@ export const EditAuthPassword = authStory("password", "svc-wiki");
 export const EditAuthPin = authStory("pin", "svc-wiki");
 export const EditAuthHeader = authStory("header", "svc-long");
 export const EditAuthNetBirdOnly = authStory("netbird-only");
+export const EditAuthRoles = authStory("roles", "svc-tickets");
 
 export const EditAccessControl: Story = {
   play: async () => {

@@ -15,6 +15,7 @@ import {
   user,
   waitForPopup,
 } from "@/storybook/network";
+import { settle } from "@/storybook/wait";
 
 const navigation = (id: string, tab?: string) => ({
   nextjs: {
@@ -78,6 +79,9 @@ export const ResourceGroupsPickerOpen: Story = {
     await resourcesReady();
     await clickSelector("[data-testid='add-resource']");
     await findDialog();
+    // The picker sizes itself from its trigger; opening it while the dialog
+    // is still entering measures a mid-animation width.
+    await settle();
     await clickText("Add or select resource group(s)...");
     await waitForPopup();
   },

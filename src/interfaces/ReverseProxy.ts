@@ -115,6 +115,36 @@ export interface ReverseProxyAuth {
     enabled: boolean;
   };
   header_auths?: HeaderAuthConfig[];
+  authorization?: ServiceAuthorizationConfig;
+}
+
+export type AuthorizationForwarding = "headers" | "jwt";
+
+export type AuthorizationJwtHeader = "X-NetBird-Identity" | "Authorization";
+
+export interface ServiceRoleMapping {
+  name: string;
+  /** Group IDs that grant this role. */
+  groups?: string[];
+  /** MCP tool names or glob patterns (* matches any characters). */
+  mcp_tools?: string[];
+}
+
+/**
+ * Application authorization for an HTTP service: role mappings, MCP tool
+ * permissions and how the proxy forwards identity to the upstream.
+ */
+export interface ServiceAuthorizationConfig {
+  roles?: ServiceRoleMapping[];
+  /** Roles given to callers authenticated with header auth (API keys). */
+  api_key_roles?: string[];
+  enforce_mcp?: boolean;
+  forwarding: AuthorizationForwarding;
+  jwt_header?: AuthorizationJwtHeader;
+  /** Read-only. Returned in jwt mode; never sent back. */
+  public_key_pem?: string;
+  /** Read-only. The kid of JWTs signed for this service. */
+  key_id?: string;
 }
 
 export interface HeaderAuthConfig {

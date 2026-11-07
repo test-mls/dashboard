@@ -26,6 +26,7 @@ import {
   ExternalLinkIcon,
   FileCode2Icon,
   GlobeIcon,
+  KeyRoundIcon,
   LockKeyhole,
   MapPinned,
   NetworkIcon,
@@ -38,8 +39,10 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
+import { useSWRConfig } from "swr";
 import ReverseProxyIcon from "@/assets/icons/ReverseProxyIcon";
 import { useDialog } from "@/contexts/DialogProvider";
+import { useGroups } from "@/contexts/GroupsProvider";
 import { usePermissions } from "@/contexts/PermissionsProvider";
 import { useReverseProxies } from "@/contexts/ReverseProxiesProvider";
 import { Group } from "@/interfaces/Group";
@@ -64,8 +67,15 @@ import {
 import useGroupHelper from "@/modules/groups/useGroupHelper";
 import AuthHeaderModal from "@/modules/reverse-proxy/auth/AuthHeaderModal";
 import AuthNetBirdOnlyModal from "@/modules/reverse-proxy/auth/AuthNetBirdOnlyModal";
+import {
+  type AuthorizationDraft,
+  draftFromConfig,
+  draftToConfig,
+  headerAuthUsesAuthorization,
+} from "@/modules/reverse-proxy/auth/authorization";
 import AuthPasswordModal from "@/modules/reverse-proxy/auth/AuthPasswordModal";
 import AuthPinModal from "@/modules/reverse-proxy/auth/AuthPinModal";
+import AuthRolesModal from "@/modules/reverse-proxy/auth/AuthRolesModal";
 import AuthSSOModal from "@/modules/reverse-proxy/auth/AuthSSOModal";
 import { ReverseProxyAccessControlRules } from "@/modules/reverse-proxy/ReverseProxyAccessControlRules";
 import ReverseProxyHTTPTargets from "@/modules/reverse-proxy/ReverseProxyHTTPTargets";
@@ -235,6 +245,7 @@ export default function ReverseProxyModal({
       setPin("");
       setHeaderAuthsEnabled(false);
       setLinkAuthEnabled(false);
+      setAuthzEnabled(false);
     } else {
       setAccessGroups([]);
     }
@@ -341,6 +352,18 @@ export default function ReverseProxyModal({
     reverseProxy?.auth?.header_auths ?? [],
   );
 
+  // Roles & authorization. Role groups stay Group objects until submit so
+  // groups typed into the selector can be created then, like SSO groups.
+  const { groups: allGroups, createOrUpdate: createOrUpdateGroup } =
+    useGroups();
+  const { mutate } = useSWRConfig();
+  const [authzEnabled, setAuthzEnabled] = useState(
+    !!reverseProxy?.auth?.authorization,
+  );
+  const [authzDraft, setAuthzDraft] = useState<AuthorizationDraft>(() =>
+    draftFromConfig(reverseProxy?.auth?.authorization, allGroups),
+  );
+
   const [accessRestrictions, setAccessRestrictions] = useState<
     AccessRestrictions | undefined
   >(reverseProxy?.access_restrictions);
@@ -352,6 +375,7 @@ export default function ReverseProxyModal({
   const [ssoModalOpen, setSsoModalOpen] = useState(false);
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [headerModalOpen, setHeaderModalOpen] = useState(false);
+  const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [netBirdOnlyModalOpen, setNetBirdOnlyModalOpen] = useState(false);
 
   // Target being added/edited
@@ -448,6 +472,25 @@ export default function ReverseProxyModal({
     !headerAuthsEnabled &&
     !accessRestrictions;
 
+  // buildAuthorization creates groups that were typed into a role's group
+  // selector but do not exist yet, once per name, and returns the API payload.
+  const buildAuthorization = async () => {
+    const created = new Map<string, string>();
+    for (const role of authzDraft.roles) {
+      for (const g of role.groups) {
+        if (g.id || created.has(g.name)) continue;
+        const group = await createOrUpdateGroup(g);
+        if (group.id) created.set(g.name, group.id);
+      }
+    }
+    if (created.size > 0) mutate("/groups");
+    return draftToConfig(authzDraft, (role) =>
+      role.groups
+        .map((g) => g.id ?? created.get(g.name))
+        .filter((id): id is string => !!id),
+    );
+  };
+
   const handleSubmit = async () => {
     if (isUnprotected) {
       const confirmed = await confirm({
@@ -464,6 +507,8 @@ export default function ReverseProxyModal({
 
     const savedGroups = await saveGroups();
     const savedAccessGroups = isPrivate ? await saveAccessGroups() : [];
+    const authorization =
+      authzEnabled && !isPrivate ? await buildAuthorization() : undefined;
 
     const auth: ReverseProxyAuth = {
       password_auth: {
@@ -484,6 +529,7 @@ export default function ReverseProxyModal({
       header_auths: headerAuthsEnabled
         ? headerAuths.map((h) => ({ ...h, enabled: true }))
         : [],
+      authorization,
     };
 
     const l4TargetPayload: ReverseProxyTarget | undefined = l4Target
@@ -785,6 +831,18 @@ export default function ReverseProxyModal({
                       description="Require specific HTTP headers to access this service."
                       enabled={headerAuthsEnabled}
                       onClick={() => setHeaderModalOpen(true)}
+                    />
+                    <SettingCard.Item
+                      data-testid="auth-roles-card"
+                      label={
+                        <>
+                          <KeyRoundIcon size={15} />
+                          Roles & Authorization
+                        </>
+                      }
+                      description="Map groups to roles, limit MCP tools per role, and forward identity as headers or a signed JWT."
+                      enabled={authzEnabled}
+                      onClick={() => setRolesModalOpen(true)}
                     />
                   </>
                 )}
@@ -1218,6 +1276,33 @@ export default function ReverseProxyModal({
           setTimeout(() => {
             setHeaderAuths([]);
             setHeaderAuthsEnabled(false);
+          }, 200);
+        }}
+      />
+
+      <AuthRolesModal
+        open={rolesModalOpen}
+        onOpenChange={setRolesModalOpen}
+        key={rolesModalOpen ? "r1" : "r0"}
+        current={authzDraft}
+        isEnabled={authzEnabled}
+        headerAuthEnabled={headerAuthsEnabled}
+        headerAuthUsesAuthorization={
+          headerAuthsEnabled && headerAuthUsesAuthorization(headerAuths)
+        }
+        domain={reverseProxy?.domain}
+        publicKeyPem={reverseProxy?.auth?.authorization?.public_key_pem}
+        keyId={reverseProxy?.auth?.authorization?.key_id}
+        onSave={(draft) => {
+          setTimeout(() => {
+            setAuthzDraft(draft);
+            setAuthzEnabled(true);
+          }, 200);
+        }}
+        onRemove={() => {
+          setTimeout(() => {
+            setAuthzDraft(draftFromConfig(undefined, allGroups));
+            setAuthzEnabled(false);
           }, 200);
         }}
       />

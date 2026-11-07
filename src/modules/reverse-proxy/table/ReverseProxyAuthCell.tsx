@@ -14,6 +14,7 @@ import {
   CircleUser,
   FileCode2Icon,
   HelpCircle,
+  KeyRoundIcon,
   LockKeyhole,
   LockOpenIcon,
   LucideIcon,
@@ -98,6 +99,8 @@ export default function ReverseProxyAuthCell({
 
   const enabled = AUTH_METHODS.filter((m) => auth?.[m.key]?.enabled);
   const hasHeaderAuths = (auth?.header_auths ?? []).some((h) => h.enabled);
+  const authorization = auth?.authorization;
+  const roleCount = authorization?.roles?.length ?? 0;
   const authCount =
     enabled.length + (hasHeaderAuths ? 1 : 0) + (isPrivate ? 1 : 0);
 
@@ -192,6 +195,20 @@ export default function ReverseProxyAuthCell({
                       value={
                         <div className={"text-green-500"}>
                           {(auth?.header_auths ?? []).filter((h) => h.enabled).length} Header{(auth?.header_auths ?? []).filter((h) => h.enabled).length !== 1 ? "s" : ""}
+                        </div>
+                      }
+                    />
+                  )}
+                  {authorization && (
+                    <ListItem
+                      className={"py-0.5"}
+                      icon={<KeyRoundIcon size={14} />}
+                      label={"Roles & Authorization"}
+                      value={
+                        <div className={"text-green-500"}>
+                          {roleCount} Role{roleCount !== 1 ? "s" : ""}
+                          {authorization.forwarding === "jwt" ? ", JWT" : ""}
+                          {authorization.enforce_mcp ? ", MCP" : ""}
                         </div>
                       }
                     />
